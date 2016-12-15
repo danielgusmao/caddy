@@ -6,11 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/hashicorp/go-syslog"
 	"github.com/mholt/caddy"
 	"github.com/mholt/caddy/caddyhttp/httpserver"
 )
+
+var remoteSyslogPrefixes = map[string]string{
+	"syslog+tcp://": "tcp",
+	"syslog+udp://": "udp",
+}
 
 // setup configures a new errors middleware instance.
 func setup(c *caddy.Controller) error {
@@ -24,6 +30,7 @@ func setup(c *caddy.Controller) error {
 		var err error
 		var writer io.Writer
 
+	selectwriter:
 		switch handler.LogFile {
 		case "visible":
 			handler.Debug = true
@@ -37,6 +44,18 @@ func setup(c *caddy.Controller) error {
 				return err
 			}
 		default:
+
+			for prefix, raddr := range remoteSyslogPrefixes {
+				if strings.HasPrefix(handler.LogFile, prefix) {
+					writer, err = gsyslog.DialLogger(raddr, strings.TrimPrefix(handler.LogFile, prefix), gsyslog.LOG_ERR, "LOCAL0", "caddy")
+					if err != nil {
+						return err
+					}
+
+					break selectwriter
+				}
+			}
+
 			if handler.LogFile == "" {
 				writer = os.Stderr // default
 				break
